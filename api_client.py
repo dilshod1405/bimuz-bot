@@ -9,10 +9,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Timeout configuration (in seconds)
+# Increased timeouts for better reliability with external APIs
 TIMEOUT = aiohttp.ClientTimeout(
-    total=60,  # Total timeout for the entire request
-    connect=30,  # Timeout for establishing connection
-    sock_read=30  # Timeout for reading data
+    total=120,  # Total timeout for the entire request (2 minutes)
+    connect=60,  # Timeout for establishing connection (1 minute)
+    sock_read=60  # Timeout for reading data (1 minute)
 )
 
 
@@ -76,143 +77,156 @@ class APIClient:
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
-        retry_on_401: bool = True
+        retry_on_401: bool = True,
+        max_retries: int = 2
     ) -> Dict[str, Any]:
-        """Make an API request."""
+        """Make an API request with retry logic for network errors."""
         if not self.session:
             self.session = aiohttp.ClientSession(timeout=TIMEOUT)
         
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
         
-        try:
-            async with self.session.request(
-                method=method,
-                url=url,
-                json=data,
-                params=params,
-                headers=headers
-            ) as response:
-                # Handle 204 No Content (common for DELETE requests)
-                if response.status == 204:
-                    # Some backends return 204 with JSON body despite HTTP spec
-                    # Try to read body, but don't fail if it's empty or unreadable
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                async with self.session.request(
+                    method=method,
+                    url=url,
+                    json=data,
+                    params=params,
+                    headers=headers
+                ) as response:
+                    # Handle 204 No Content (common for DELETE requests)
+                    if response.status == 204:
+                        # Some backends return 204 with JSON body despite HTTP spec
+                        # Try to read body, but don't fail if it's empty or unreadable
+                        try:
+                            # Check if there's content to read
+                            content_length = response.headers.get('Content-Length', '0')
+                            if content_length and int(content_length) > 0:
+                                text = await response.read()
+                                if text:
+                                    try:
+                                        response_data = json.loads(text.decode('utf-8'))
+                                        if response_data.get('success'):
+                                            return response_data
+                                    except (json.JSONDecodeError, UnicodeDecodeError):
+                                        pass
+                            # If no body or parsing failed, return success
+                            return {'success': True, 'message': 'Operation completed successfully'}
+                        except Exception as e:
+                            # If any error reading 204 response, assume success
+                            logger.debug(f"204 response handling for {url}: {str(e)}")
+                            return {'success': True, 'message': 'Operation completed successfully'}
+                    
+                    # Try to parse JSON response
                     try:
-                        # Check if there's content to read
-                        content_length = response.headers.get('Content-Length', '0')
-                        if content_length and int(content_length) > 0:
-                            text = await response.read()
-                            if text:
+                        response_data = await response.json()
+                    except (aiohttp.ContentTypeError, json.JSONDecodeError) as e:
+                        # If response is not JSON, get text
+                        text = await response.text()
+                        logger.error(f"JSON parsing error for {url}: {text[:200]}")
+                        raise Exception(f"Invalid JSON response: {text[:200]}")
+                    
+                    # Handle 401 Unauthorized - try to refresh token
+                    if response.status == 401 and retry_on_401 and self.user_id:
+                        new_token = await self._refresh_access_token()
+                        if new_token:
+                            self.access_token = new_token
+                            headers = self._get_headers()
+                            # Retry the request with new token
+                            async with self.session.request(
+                                method=method,
+                                url=url,
+                                json=data,
+                                params=params,
+                                headers=headers
+                            ) as retry_response:
+                                # Handle 204 No Content on retry
+                                if retry_response.status == 204:
+                                    try:
+                                        content_length = retry_response.headers.get('Content-Length', '0')
+                                        if content_length and int(content_length) > 0:
+                                            text = await retry_response.read()
+                                            if text:
+                                                try:
+                                                    response_data = json.loads(text.decode('utf-8'))
+                                                    if response_data.get('success'):
+                                                        return response_data
+                                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                                    pass
+                                        return {'success': True, 'message': 'Operation completed successfully'}
+                                    except Exception:
+                                        return {'success': True, 'message': 'Operation completed successfully'}
+                                
                                 try:
-                                    response_data = json.loads(text.decode('utf-8'))
-                                    if response_data.get('success'):
-                                        return response_data
-                                except (json.JSONDecodeError, UnicodeDecodeError):
-                                    pass
-                        # If no body or parsing failed, return success
-                        return {'success': True, 'message': 'Operation completed successfully'}
-                    except Exception as e:
-                        # If any error reading 204 response, assume success
-                        logger.debug(f"204 response handling for {url}: {str(e)}")
-                        return {'success': True, 'message': 'Operation completed successfully'}
-                
-                # Try to parse JSON response
-                try:
-                    response_data = await response.json()
-                except (aiohttp.ContentTypeError, json.JSONDecodeError) as e:
-                    # If response is not JSON, get text
-                    text = await response.text()
-                    logger.error(f"JSON parsing error for {url}: {text[:200]}")
-                    raise Exception(f"Invalid JSON response: {text[:200]}")
-                
-                # Handle 401 Unauthorized - try to refresh token
-                if response.status == 401 and retry_on_401 and self.user_id:
-                    new_token = await self._refresh_access_token()
-                    if new_token:
-                        self.access_token = new_token
-                        headers = self._get_headers()
-                        # Retry the request with new token
-                        async with self.session.request(
-                            method=method,
-                            url=url,
-                            json=data,
-                            params=params,
-                            headers=headers
-                        ) as retry_response:
-                            # Handle 204 No Content on retry
-                            if retry_response.status == 204:
-                                try:
-                                    content_length = retry_response.headers.get('Content-Length', '0')
-                                    if content_length and int(content_length) > 0:
-                                        text = await retry_response.read()
-                                        if text:
-                                            try:
-                                                response_data = json.loads(text.decode('utf-8'))
-                                                if response_data.get('success'):
-                                                    return response_data
-                                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                                pass
-                                    return {'success': True, 'message': 'Operation completed successfully'}
-                                except Exception:
-                                    return {'success': True, 'message': 'Operation completed successfully'}
-                            
-                            try:
-                                response_data = await retry_response.json()
-                            except (aiohttp.ContentTypeError, json.JSONDecodeError) as e:
-                                text = await retry_response.text()
-                                logger.error(f"JSON parsing error on retry for {url}: {text[:200]}")
-                                raise Exception(f"Invalid JSON response: {text[:200]}")
-                            
-                            if retry_response.status >= 400:
-                                # For 400 errors, return the response data instead of raising exception
-                                if retry_response.status == 400:
-                                    return {
-                                        'success': False,
-                                        'message': response_data.get('message', 'Validation error'),
-                                        'errors': response_data.get('errors', response_data)
-                                    }
-                                error_msg = response_data.get('message', 'Unknown error')
-                                errors = response_data.get('errors', {})
-                                if errors:
-                                    error_msg += f" - {errors}"
-                                raise Exception(f"API Error ({retry_response.status}): {error_msg}")
-                            
-                            return response_data
-                    else:
-                        # Token refresh failed, user needs to login again
-                        raise Exception("Authentication failed. Please login again.")
-                
-                if response.status >= 400:
-                    # For 400 errors, return the response data instead of raising exception
-                    # This allows handlers to check response.get('success') and handle errors gracefully
-                    if response.status == 400:
-                        # Return error response in same format as success response
-                        return {
-                            'success': False,
-                            'message': response_data.get('message', 'Validation error'),
-                            'errors': response_data.get('errors', response_data)
-                        }
-                    error_msg = response_data.get('message', 'Unknown error')
-                    errors = response_data.get('errors', {})
-                    if errors:
-                        if isinstance(errors, dict):
-                            error_msg += f" - {errors}"
+                                    response_data = await retry_response.json()
+                                except (aiohttp.ContentTypeError, json.JSONDecodeError) as e:
+                                    text = await retry_response.text()
+                                    logger.error(f"JSON parsing error on retry for {url}: {text[:200]}")
+                                    raise Exception(f"Invalid JSON response: {text[:200]}")
+                                
+                                if retry_response.status >= 400:
+                                    # For 400 errors, return the response data instead of raising exception
+                                    if retry_response.status == 400:
+                                        return {
+                                            'success': False,
+                                            'message': response_data.get('message', 'Validation error'),
+                                            'errors': response_data.get('errors', response_data)
+                                        }
+                                    error_msg = response_data.get('message', 'Unknown error')
+                                    errors = response_data.get('errors', {})
+                                    if errors:
+                                        error_msg += f" - {errors}"
+                                    raise Exception(f"API Error ({retry_response.status}): {error_msg}")
+                                
+                                return response_data
                         else:
-                            error_msg += f" - {str(errors)}"
-                    raise Exception(f"API Error ({response.status}): {error_msg}")
+                            # Token refresh failed, user needs to login again
+                            raise Exception("Authentication failed. Please login again.")
+                    
+                    if response.status >= 400:
+                        # For 400 errors, return the response data instead of raising exception
+                        # This allows handlers to check response.get('success') and handle errors gracefully
+                        if response.status == 400:
+                            # Return error response in same format as success response
+                            return {
+                                'success': False,
+                                'message': response_data.get('message', 'Validation error'),
+                                'errors': response_data.get('errors', response_data)
+                            }
+                        error_msg = response_data.get('message', 'Unknown error')
+                        errors = response_data.get('errors', {})
+                        if errors:
+                            if isinstance(errors, dict):
+                                error_msg += f" - {errors}"
+                            else:
+                                error_msg += f" - {str(errors)}"
+                        raise Exception(f"API Error ({response.status}): {error_msg}")
+                    
+                    return response_data
+            except aiohttp.ClientError as e:
+                error_str = str(e)
+                # Check if it's a 204 parsing issue - if so, assume success
+                if "204" in error_str or "Expected HTTP" in error_str or "RTSP" in error_str or "ICE" in error_str:
+                    logger.debug(f"204 response parsing issue for {url}, assuming success: {str(e)}")
+                    return {'success': True, 'message': 'Operation completed successfully'}
                 
-                return response_data
-        except aiohttp.ClientError as e:
-            error_str = str(e)
-            # Check if it's a 204 parsing issue - if so, assume success
-            if "204" in error_str or "Expected HTTP" in error_str or "RTSP" in error_str or "ICE" in error_str:
-                logger.debug(f"204 response parsing issue for {url}, assuming success: {str(e)}")
-                return {'success': True, 'message': 'Operation completed successfully'}
-            logger.error(f"Network error for {url}: {str(e)}")
-            raise Exception(f"Network error: {str(e)}")
-        except Exception as e:
-            # Re-raise our custom exceptions
-            raise
+                last_error = e
+                # Retry on network errors (timeout, connection errors, etc.)
+                if attempt < max_retries:
+                    wait_time = (attempt + 1) * 2  # Exponential backoff: 2s, 4s
+                    logger.warning(f"Network error for {url} (attempt {attempt + 1}/{max_retries + 1}): {str(e)}. Retrying in {wait_time}s...")
+                    import asyncio
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Network error for {url} after {max_retries + 1} attempts: {str(e)}")
+                    raise Exception(f"Network error: {str(e)}")
+            except Exception as e:
+                # Don't retry on non-network errors
+                raise
     
     # Authentication endpoints
     async def login(self, email: str, password: str) -> Dict[str, Any]:
