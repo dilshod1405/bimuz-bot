@@ -131,10 +131,19 @@ jobs:
         run: |
           docker build -t bimuz-bot:latest .
       
+      - name: Install docker-compose if needed
+        run: |
+          if ! command -v docker-compose &> /dev/null; then
+            sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+          fi
+          docker compose version || docker-compose --version
+      
       - name: Test with docker compose
         run: |
-          docker compose version || docker-compose --version
-          docker compose pull || docker-compose pull
+          # Pull only redis, skip bot (already built)
+          docker compose pull redis || docker-compose pull redis || true
+          # Start services
           docker compose up -d || docker-compose up -d
           sleep 10
           docker compose ps || docker-compose ps
