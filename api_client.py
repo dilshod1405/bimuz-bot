@@ -8,6 +8,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Timeout configuration (in seconds)
+TIMEOUT = aiohttp.ClientTimeout(
+    total=60,  # Total timeout for the entire request
+    connect=30,  # Timeout for establishing connection
+    sock_read=30  # Timeout for reading data
+)
+
 
 class APIClient:
     """Client for making API requests to the backend."""
@@ -19,7 +26,7 @@ class APIClient:
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(timeout=TIMEOUT)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -45,7 +52,7 @@ class APIClient:
             return None
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
                 url = f"{self.base_url}/api/v1/auth/token/refresh/"
                 async with session.post(
                     url,
@@ -73,7 +80,7 @@ class APIClient:
     ) -> Dict[str, Any]:
         """Make an API request."""
         if not self.session:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(timeout=TIMEOUT)
         
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
