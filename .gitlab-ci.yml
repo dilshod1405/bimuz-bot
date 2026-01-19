@@ -14,10 +14,27 @@ docker-build:
     COMPOSE_DOCKER_CLI_BUILD: "0"
   before_script:
     - docker version
+    - |
+      if [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      fi
   script:
     - docker build -t bimuz-bot:test .
     - docker run --rm bimuz-bot:test python --version
     - docker run --rm -e BOT_TOKEN=test_token -e API_BASE_URL=http://localhost:8000 -e REDIS_URL=redis://localhost:6379/0 bimuz-bot:test python -c "import bot; import handlers; print('All imports successful')"
+    - |
+      if [ -n "$CI_REGISTRY_IMAGE" ]; then
+        if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+          TAG="latest"
+        else
+          TAG="$CI_COMMIT_REF_SLUG"
+        fi
+        docker tag bimuz-bot:test "$CI_REGISTRY_IMAGE:$TAG"
+        docker push "$CI_REGISTRY_IMAGE:$TAG"
+        echo "Pushed $CI_REGISTRY_IMAGE:$TAG"
+      else
+        echo "CI_REGISTRY_IMAGE not set, skipping push"
+      fi
   tags:
     - docker
   retry:
