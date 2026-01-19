@@ -7,13 +7,13 @@ variables:
 
 docker-build:
   stage: build
-  image: docker:24
+  image: docker:25
   timeout: 30m
   variables:
     DOCKER_BUILDKIT: "0"
     COMPOSE_DOCKER_CLI_BUILD: "0"
   before_script:
-    - docker info
+    - docker version
   script:
     - docker build -t bimuz-bot:test .
     - docker run --rm bimuz-bot:test python --version
@@ -28,14 +28,14 @@ docker-build:
 
 docker-compose-test:
   stage: test
-  image: docker:24
+  image: docker:25
   timeout: 30m
   variables:
     DOCKER_BUILDKIT: "0"
     COMPOSE_DOCKER_CLI_BUILD: "0"
   before_script:
-    - apk add --no-cache docker-compose bash
-    - docker info
+    - apk add --no-cache bash
+    - docker version
     - |
       cat > .env << EOF
       BOT_TOKEN=test_token_1234567890
