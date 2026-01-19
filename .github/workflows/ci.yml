@@ -127,10 +127,14 @@ jobs:
           REDIS_URL=redis://redis:6379/0
           EOF
       
-      - name: Build and test with docker compose
+      - name: Build Docker image for testing
+        run: |
+          docker build -t bimuz-bot:latest .
+      
+      - name: Test with docker compose
         run: |
           docker compose version || docker-compose --version
-          docker compose build --no-cache || docker-compose build --no-cache
+          docker compose pull || docker-compose pull
           docker compose up -d || docker-compose up -d
           sleep 10
           docker compose ps || docker-compose ps

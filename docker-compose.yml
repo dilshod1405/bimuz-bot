@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -18,9 +16,7 @@ services:
       - bimuz-network
 
   bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: bimuz-bot:latest
     container_name: bimuz-bot
     restart: unless-stopped
     env_file:
