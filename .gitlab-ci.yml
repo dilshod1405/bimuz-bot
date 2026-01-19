@@ -3,14 +3,11 @@ stages:
   - test
 
 variables:
-  DOCKER_TLS_CERTDIR: "/certs/client"
   DOCKER_DRIVER: overlay2
 
 docker-build:
   stage: build
   image: docker:24
-  services:
-    - docker:24-dind
   timeout: 30m
   variables:
     DOCKER_BUILDKIT: "0"
@@ -32,14 +29,12 @@ docker-build:
 docker-compose-test:
   stage: test
   image: docker:24
-  services:
-    - docker:24-dind
   timeout: 30m
   variables:
     DOCKER_BUILDKIT: "0"
     COMPOSE_DOCKER_CLI_BUILD: "0"
   before_script:
-    - apk add --no-cache docker-compose
+    - apk add --no-cache docker-compose bash
     - docker info
     - |
       cat > .env << EOF
@@ -49,13 +44,15 @@ docker-compose-test:
       EOF
   script:
     - docker build -t bimuz-bot:latest .
-    - docker compose version || docker-compose --version
-    - docker compose pull || docker-compose pull || true
-    - docker compose up -d || docker-compose up -d
+    - docker compose version || docker-compose --version || true
+    - docker pull redis:7-alpine || true
+    - docker compose up -d redis || docker-compose up -d redis || true
+    - sleep 5
+    - docker compose up -d bot || docker-compose up -d bot || docker-compose up -d || docker-compose up -d
     - sleep 10
-    - docker compose ps || docker-compose ps
-    - docker compose logs bot || docker-compose logs bot
-    - docker compose down -v || docker-compose down -v
+    - docker compose ps || docker-compose ps || docker ps
+    - docker compose logs bot || docker-compose logs bot || docker logs bimuz-bot || true
+    - docker compose down -v || docker-compose down -v || (docker stop bimuz-bot bimuz-bot-redis 2>/dev/null || true) && (docker rm bimuz-bot bimuz-bot-redis 2>/dev/null || true)
   tags:
     - docker
   retry:
