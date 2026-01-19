@@ -109,7 +109,7 @@ jobs:
       - name: Test Docker image
         run: |
           docker run --rm bimuz-bot:test python --version
-          docker run --rm bimuz-bot:test python -c "import bot; import handlers; print('All imports successful')"
+          docker run --rm -e BOT_TOKEN=test_token -e API_BASE_URL=http://localhost:8000 -e REDIS_URL=redis://localhost:6379/0 bimuz-bot:test python -c "import bot; import handlers; print('All imports successful')"
 
   docker-compose:
     name: Test Docker Compose
@@ -127,11 +127,12 @@ jobs:
           REDIS_URL=redis://redis:6379/0
           EOF
       
-      - name: Build and test with docker-compose
+      - name: Build and test with docker compose
         run: |
-          docker-compose build --no-cache
-          docker-compose up -d
+          docker compose version || docker-compose --version
+          docker compose build --no-cache || docker-compose build --no-cache
+          docker compose up -d || docker-compose up -d
           sleep 10
-          docker-compose ps
-          docker-compose logs bot
-          docker-compose down -v
+          docker compose ps || docker-compose ps
+          docker compose logs bot || docker-compose logs bot
+          docker compose down -v || docker-compose down -v
