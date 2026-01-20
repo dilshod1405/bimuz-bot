@@ -53,12 +53,17 @@ class APIClient:
             return None
         
         try:
+            # Get headers with Host header if needed
+            headers = {'Content-Type': 'application/json'}
+            if self.base_url.startswith('http://api:') or self.base_url.startswith('http://localhost:'):
+                headers['Host'] = 'api.bimuz.uz'
+            
             async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
                 url = f"{self.base_url}/api/v1/auth/token/refresh/"
                 async with session.post(
                     url,
                     json={'refresh': refresh_token},
-                    headers={'Content-Type': 'application/json'}
+                    headers=headers
                 ) as response:
                     if response.status == 200:
                         response_data = await response.json()
