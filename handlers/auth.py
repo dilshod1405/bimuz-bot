@@ -59,6 +59,7 @@ async def process_email(message: Message, state: FSMContext):
         await message.answer("Iltimos, to'g'ri email manzil kiriting:")
         return
     
+    logger.info(f"Email received: {email}, user_id: {message.from_user.id}")
     await state.update_data(email=email)
     await message.answer("Parolingizni kiriting:")
     await state.set_state(LoginStates.waiting_for_password)
@@ -76,16 +77,51 @@ async def process_password(message: Message, state: FSMContext):
     data = await state.get_data()
     email = data.get('email')
     
+    if not email:
+        logger.error("Email not found in state data")
+        await message.answer(
+            "❌ Email topilmadi. Qayta urinib ko'ring.\n\n"
+            "Email manzilingizni kiriting:",
+            reply_markup=get_cancel_keyboard()
+        )
+        await state.set_state(LoginStates.waiting_for_email)
+        return
+    
+    logger.info(f"Attempting login for email: {email}")
+    
     try:
         async with APIClient(user_id=message.from_user.id) as client:
+            logger.info(f"Making login request for email: {email}")
             response = await client.login(email, password)
+            logger.info(f"Login response: success={response.get('success')}, message={response.get('message')}")
             
             if response.get('success'):
                 response_data = response.get('data', {})
                 employee = response_data.get('employee', {})
                 tokens = response_data.get('tokens', {})
                 
+                if not employee:
+                    logger.error("Employee data not found in response")
+                    await message.answer(
+                        "❌ Xodim ma'lumotlari topilmadi.\n\n"
+                        "Qayta urinib ko'ring. Email manzilingizni kiriting:",
+                        reply_markup=get_cancel_keyboard()
+                    )
+                    await state.set_state(LoginStates.waiting_for_email)
+                    return
+                
+                if not tokens.get('access') or not tokens.get('refresh'):
+                    logger.error("Tokens not found in response")
+                    await message.answer(
+                        "❌ Tokenlar topilmadi.\n\n"
+                        "Qayta urinib ko'ring. Email manzilingizni kiriting:",
+                        reply_markup=get_cancel_keyboard()
+                    )
+                    await state.set_state(LoginStates.waiting_for_email)
+                    return
+                
                 # Store user session
+                logger.info(f"Storing session for user_id: {message.from_user.id}")
                 await user_storage.set_user_data(
                     user_id=message.from_user.id,
                     access_token=tokens.get('access'),
@@ -96,6 +132,7 @@ async def process_password(message: Message, state: FSMContext):
                 role = employee.get('role')
                 role_display = employee.get('role_display', role)
                 
+                logger.info(f"Login successful for user_id: {message.from_user.id}, role: {role}")
                 await message.answer(
                     f"✅ Muvaffaqiyatli kirildi!\n\n"
                     f"👤 Ism: {employee.get('full_name')}\n"
@@ -106,16 +143,19 @@ async def process_password(message: Message, state: FSMContext):
                 )
                 await state.clear()
             else:
+                error_msg = response.get('message', 'Kirishda xatolik yuz berdi')
+                logger.warning(f"Login failed: {error_msg}")
                 await message.answer(
-                    f"❌ Xatolik: {response.get('message', 'Kirishda xatolik yuz berdi')}\n\n"
+                    f"❌ Xatolik: {error_msg}\n\n"
                     "Qayta urinib ko'ring. Email manzilingizni kiriting:",
                     reply_markup=get_cancel_keyboard()
                 )
                 await state.set_state(LoginStates.waiting_for_email)
     except Exception as e:
-        logger.error(f"Login error: {str(e)}")
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        error_msg = str(e)
         await message.answer(
-            f"❌ Xatolik: {str(e)}\n\n"
+            f"❌ Xatolik: {error_msg}\n\n"
             "Iltimos, qayta urinib ko'ring. Email manzilingizni kiriting:",
             reply_markup=get_cancel_keyboard()
         )

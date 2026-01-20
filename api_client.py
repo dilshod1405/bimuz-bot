@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 # Timeout configuration (in seconds)
 # Increased timeouts for better reliability with external APIs
 TIMEOUT = aiohttp.ClientTimeout(
-    total=120,  # Total timeout for the entire request (2 minutes)
-    connect=60,  # Timeout for establishing connection (1 minute)
-    sock_read=60  # Timeout for reading data (1 minute)
+    total=180,  # Total timeout for the entire request (3 minutes)
+    connect=90,  # Timeout for establishing connection (1.5 minutes)
+    sock_read=90  # Timeout for reading data (1.5 minutes)
 )
 
 
@@ -84,8 +84,16 @@ class APIClient:
         if not self.session:
             self.session = aiohttp.ClientSession(timeout=TIMEOUT)
         
-        url = f"{self.base_url}{endpoint}"
+        # Ensure endpoint starts with /
+        if not endpoint.startswith('/'):
+            endpoint = '/' + endpoint
+        
+        # Ensure base_url doesn't end with /
+        base_url = self.base_url.rstrip('/')
+        url = f"{base_url}{endpoint}"
         headers = self._get_headers()
+        
+        logger.info(f"Making {method} request to: {url}")
         
         last_error = None
         for attempt in range(max_retries + 1):
@@ -223,7 +231,15 @@ class APIClient:
                     continue
                 else:
                     logger.error(f"Network error for {url} after {max_retries + 1} attempts: {str(e)}")
-                    raise Exception(f"Network error: {str(e)}")
+                    error_type = type(e).__name__
+                    error_msg = str(e)
+                    # Provide more specific error message
+                    if "timeout" in error_msg.lower() or "TimeoutError" in error_type:
+                        raise Exception(f"Connection timeout to host {url}. Please check API_BASE_URL ({self.base_url}) and network connectivity.")
+                    elif "Connection" in error_type or "connection" in error_msg.lower():
+                        raise Exception(f"Connection error to {url}. Please check if API server is running and accessible.")
+                    else:
+                        raise Exception(f"Network error: [{error_type}] {error_msg}")
             except Exception as e:
                 # Don't retry on non-network errors
                 raise
