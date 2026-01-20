@@ -155,8 +155,11 @@ class APIClient:
                     except (aiohttp.ContentTypeError, json.JSONDecodeError) as e:
                         # If response is not JSON, get text
                         text = await response.text()
-                        logger.error(f"JSON parsing error for {url}: {text[:200]}")
-                        raise Exception(f"Invalid JSON response: {text[:200]}")
+                        logger.error(f"JSON parsing error for {url}: status={response.status}, text={text[:500]}")
+                        # If it's a 400 error with HTML, likely CSRF or validation issue
+                        if response.status == 400 and 'text/html' in response.headers.get('Content-Type', ''):
+                            raise Exception(f"Bad Request (400): Server returned HTML instead of JSON. Check if API endpoint accepts JSON and CSRF is disabled for API routes.")
+                        raise Exception(f"Invalid JSON response (status {response.status}): {text[:200]}")
                     
                     # Handle 401 Unauthorized - try to refresh token
                     if response.status == 401 and retry_on_401 and self.user_id:
@@ -216,15 +219,32 @@ class APIClient:
                             raise Exception("Authentication failed. Please login again.")
                     
                     if response.status >= 400:
-                        # For 400 errors, return the response data instead of raising exception
-                        # This allows handlers to check response.get('success') and handle errors gracefully
+                        # Handle 400 errors - might be HTML or JSON
                         if response.status == 400:
-                            # Return error response in same format as success response
-                            return {
-                                'success': False,
-                                'message': response_data.get('message', 'Validation error'),
-                                'errors': response_data.get('errors', response_data)
-                            }
+                            # Check if response is JSON
+                            content_type = response.headers.get('Content-Type', '')
+                            if 'application/json' in content_type or 'text/json' in content_type:
+                                # Return error response in same format as success response
+                                return {
+                                    'success': False,
+                                    'message': response_data.get('message', 'Validation error'),
+                                    'errors': response_data.get('errors', response_data)
+                                }
+                            else:
+                                # HTML error response (Django default error page)
+                                logger.error(f"API returned HTML error page (400) for {url}: {response_data}")
+                                # Try to extract error from response_data if it was parsed
+                                error_msg = 'Validation error'
+                                if isinstance(response_data, dict):
+                                    error_msg = response_data.get('message', response_data.get('detail', 'Validation error'))
+                                elif isinstance(response_data, str) and response_data:
+                                    error_msg = response_data[:200]
+                                
+                                return {
+                                    'success': False,
+                                    'message': error_msg,
+                                    'errors': {}
+                                }
                         error_msg = response_data.get('message', 'Unknown error')
                         errors = response_data.get('errors', {})
                         if errors:
