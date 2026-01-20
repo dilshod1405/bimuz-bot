@@ -97,14 +97,14 @@ async def on_startup(bot: Bot):
         try:
             await bot.delete_webhook()
             logger.info("Webhook deleted (using polling mode)")
-        except Exception as e:
+        except Exception as e:                                                                                                                                                                                                                                                                                                              
             logger.warning(f"Failed to delete webhook: {str(e)}")
 
 
 async def on_shutdown(bot: Bot):
     """Actions to perform on bot shutdown."""
     logger.info("Bot is shutting down...")
-    
+                            
     # Close bot session
     await bot.session.close()
     
