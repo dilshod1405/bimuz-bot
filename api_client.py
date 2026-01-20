@@ -94,10 +94,15 @@ class APIClient:
         headers = self._get_headers()
         
         logger.info(f"Making {method} request to: {url}")
+        if data:
+            logger.debug(f"Request data: {str(data)[:200]}")
+        if params:
+            logger.debug(f"Request params: {params}")
         
         last_error = None
         for attempt in range(max_retries + 1):
             try:
+                logger.info(f"Sending {method} request (attempt {attempt + 1}/{max_retries + 1})...")
                 async with self.session.request(
                     method=method,
                     url=url,
@@ -105,6 +110,7 @@ class APIClient:
                     params=params,
                     headers=headers
                 ) as response:
+                    logger.info(f"Response received: status={response.status}, headers={dict(response.headers)}")
                     # Handle 204 No Content (common for DELETE requests)
                     if response.status == 204:
                         # Some backends return 204 with JSON body despite HTTP spec
