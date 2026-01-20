@@ -23,9 +23,9 @@ WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', None)  # Optional secret token
 WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', '8443'))
 
 # Backend API Configuration
-# Try internal Docker service name first, then external URL
-# In Docker: use 'http://api:8000' (service name from docker-compose)
+# Use external URL for production (same as dashboard)
 # External: use 'https://api.bimuz.uz'
+# Internal (for local dev): use 'http://api:8000' or 'http://localhost:8000'
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')
 
 # Redis Configuration (optional)

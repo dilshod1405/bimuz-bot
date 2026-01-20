@@ -99,10 +99,12 @@ class APIClient:
         if params:
             logger.debug(f"Request params: {params}")
         
-        # Create connector with SSL verification disabled for development
-        # In production, use proper SSL certificates
+        # Create connector with SSL verification
+        # For external URLs (https://), SSL verification is enabled
+        # For internal URLs (http://), SSL verification is disabled
+        ssl_verify = self.base_url.startswith('https://')
         connector = aiohttp.TCPConnector(
-            ssl=False,  # Disable SSL verification for internal Docker network
+            ssl=ssl_verify,  # Enable SSL verification for HTTPS, disable for HTTP
             limit=100,
             limit_per_host=30
         )
