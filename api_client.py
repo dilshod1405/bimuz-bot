@@ -99,6 +99,21 @@ class APIClient:
         if params:
             logger.debug(f"Request params: {params}")
         
+        # Create connector with SSL verification disabled for development
+        # In production, use proper SSL certificates
+        connector = aiohttp.TCPConnector(
+            ssl=False,  # Disable SSL verification for internal Docker network
+            limit=100,
+            limit_per_host=30
+        )
+        
+        # Use custom session with connector if session doesn't exist
+        if not self.session:
+            self.session = aiohttp.ClientSession(
+                timeout=TIMEOUT,
+                connector=connector
+            )
+        
         last_error = None
         for attempt in range(max_retries + 1):
             try:
@@ -110,7 +125,7 @@ class APIClient:
                     params=params,
                     headers=headers
                 ) as response:
-                    logger.info(f"Response received: status={response.status}, headers={dict(response.headers)}")
+                    logger.info(f"Response received: status={response.status}")
                     # Handle 204 No Content (common for DELETE requests)
                     if response.status == 204:
                         # Some backends return 204 with JSON body despite HTTP spec
