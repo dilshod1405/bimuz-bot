@@ -1,9 +1,19 @@
 """Main bot file."""
 import asyncio
 import logging
+import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from config import (
+    BOT_TOKEN,
+    BOT_MODE,
+    WEBHOOK_HOST,
+    WEBHOOK_PATH,
+    WEBHOOK_SECRET,
+    WEBHOOK_PORT
+)
 
 from handlers import (
     auth,
@@ -25,6 +35,51 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def setup_bot_commands(bot: Bot):
+    """Set up bot commands menu."""
+    from aiogram.types import BotCommand
+    commands = [
+        BotCommand(command="start", description="Botni ishga tushirish"),
+    ]
+    await bot.set_my_commands(commands)
+
+
+async def on_startup(bot: Bot):
+    """Actions to perform on bot startup."""
+    logger.info("Bot is starting up...")
+    
+    # Set up bot commands
+    await setup_bot_commands(bot)
+    
+    # Set webhook if in prod mode
+    if BOT_MODE == 'prod':
+        webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=WEBHOOK_SECRET,
+            allowed_updates=["message", "callback_query", "chat_member"]
+        )
+        logger.info(f"Webhook set to: {webhook_url}")
+    else:
+        # Delete webhook if exists (when switching from prod to dev)
+        await bot.delete_webhook()
+        logger.info("Webhook deleted (using polling mode)")
+
+
+async def on_shutdown(bot: Bot):
+    """Actions to perform on bot shutdown."""
+    logger.info("Bot is shutting down...")
+    
+    # Close bot session
+    await bot.session.close()
+    
+    # Close Redis connection
+    from storage import user_storage
+    await user_storage.close()
+    
+    logger.info("Bot shutdown complete")
+
+
 async def main():
     """Main function to run the bot."""
     # Initialize bot and dispatcher
@@ -43,16 +98,67 @@ async def main():
     dp.include_router(reports.router)
     dp.include_router(documents.router)
     
-    logger.info("Bot is starting...")
-    
-    # Start polling
+    runner = None
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    finally:
-        await bot.session.close()
-        # Close Redis connection
-        from storage import user_storage
-        await user_storage.close()
+        if BOT_MODE == 'prod':
+            # Production mode: use webhook
+            logger.info(f"Starting bot in PRODUCTION mode (webhook) on port {WEBHOOK_PORT}")
+            
+            # Run startup actions
+            await on_startup(bot)
+            
+            # Create aiohttp application
+            app = web.Application()
+            
+            # Register webhook handler
+            webhook_requests_handler = SimpleRequestHandler(
+                dispatcher=dp,
+                bot=bot,
+                secret_token=WEBHOOK_SECRET
+            )
+            webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+            
+            # Setup application
+            setup_application(app, dp, bot=bot)
+            
+            # Create runner
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host='0.0.0.0', port=WEBHOOK_PORT)
+            await site.start()
+            
+            logger.info(f"Webhook server started on http://0.0.0.0:{WEBHOOK_PORT}{WEBHOOK_PATH}")
+            logger.info(f"Webhook URL: {WEBHOOK_HOST}{WEBHOOK_PATH}")
+            
+            # Keep the server running
+            try:
+                await asyncio.Event().wait()
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt")
+            finally:
+                if runner:
+                    await runner.cleanup()
+                await on_shutdown(bot)
+            
+        else:
+            # Development mode: use polling
+            logger.info("Starting bot in DEVELOPMENT mode (polling)")
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                on_startup=on_startup,
+                on_shutdown=on_shutdown
+            )
+
+    except Exception as e:
+        logger.error(f"Error starting bot: {str(e)}", exc_info=True)
+        if BOT_MODE == 'prod' and runner:
+            try:
+                await runner.cleanup()
+            except:
+                pass
+        await on_shutdown(bot)
+        raise
 
 
 if __name__ == '__main__':

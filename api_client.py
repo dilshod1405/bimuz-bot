@@ -262,6 +262,20 @@ class APIClient:
         """Get employee by ID."""
         return await self._request('GET', f'/api/v1/auth/employees/{employee_id}/')
     
+    async def create_employee(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new employee (requires Developer role)."""
+        # Employee registration doesn't require authentication token
+        # But we still pass it if available for logging purposes
+        return await self._request('POST', '/api/v1/auth/register/', data, retry_on_401=False)
+    
+    async def update_employee(self, employee_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update employee."""
+        return await self._request('PATCH', f'/api/v1/auth/employees/{employee_id}/', data)
+    
+    async def delete_employee(self, employee_id: int) -> Dict[str, Any]:
+        """Delete employee."""
+        return await self._request('DELETE', f'/api/v1/auth/employees/{employee_id}/')
+    
     # Student endpoints
     async def get_students(self, search: Optional[str] = None) -> Dict[str, Any]:
         """Get list of students."""

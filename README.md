@@ -175,6 +175,15 @@ Edit `.env` file:
 # Telegram Bot Token (from @BotFather)
 BOT_TOKEN=your_bot_token_here
 
+# Bot Mode: 'dev' (polling) or 'prod' (webhook)
+BOT_MODE=dev
+
+# Webhook Configuration (for prod mode only)
+WEBHOOK_HOST=https://bot.bimuz.uz
+WEBHOOK_PATH=/webhook
+WEBHOOK_SECRET=your_secret_token_here  # Optional: random string for security
+WEBHOOK_PORT=8443
+
 # Backend API URL
 API_BASE_URL=http://localhost:8000
 
@@ -196,9 +205,26 @@ sudo systemctl start redis
 
 ### Step 6: Run the Bot
 
+**Development Mode (Polling):**
 ```bash
+# Set BOT_MODE=dev in .env (default)
 python bot.py
 ```
+
+**Production Mode (Webhook):**
+```bash
+# Set BOT_MODE=prod in .env
+# Configure WEBHOOK_HOST, WEBHOOK_PATH, WEBHOOK_PORT
+python bot.py
+```
+
+**Important Notes for Production Mode:**
+- ✅ Bot must be accessible via HTTPS (required by Telegram)
+- ✅ Server IP must be whitelisted in Telegram (if using firewall)
+- ✅ Webhook will be automatically set on bot startup
+- ✅ Webhook server runs on port specified in `WEBHOOK_PORT` (default: 8443)
+- ✅ Use reverse proxy (nginx/traefik) to forward HTTPS to bot port
+- ✅ `WEBHOOK_SECRET` is optional but recommended for security
 
 ---
 
@@ -209,8 +235,15 @@ python bot.py
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `BOT_TOKEN` | Telegram bot token from @BotFather | ✅ Yes | - |
+| `BOT_MODE` | Bot mode: `dev` (polling) or `prod` (webhook) | ❌ No | `dev` |
+| `WEBHOOK_HOST` | Webhook host URL (for prod mode) | ❌ No* | `https://bot.bimuz.uz` |
+| `WEBHOOK_PATH` | Webhook path (for prod mode) | ❌ No* | `/webhook` |
+| `WEBHOOK_SECRET` | Webhook secret token (optional, for prod mode) | ❌ No | - |
+| `WEBHOOK_PORT` | Webhook server port (for prod mode) | ❌ No* | `8443` |
 | `API_BASE_URL` | Backend API base URL | ✅ Yes | `http://localhost:8000` |
 | `REDIS_URL` | Redis connection URL | ✅ Yes | `redis://localhost:6379/0` |
+
+\* Required when `BOT_MODE=prod`
 
 ### Role-Based Access
 
@@ -448,12 +481,24 @@ bimuz-bot/
 
 ## 📝 Notes
 
+### Development Mode (Polling)
 - ⚠️ **Redis is required** for session persistence
 - ⚠️ **Backend API must be running** and accessible
 - ⚠️ **Bot token** must be valid and active
+- ✅ **Simple setup** - no additional configuration needed
 - ✅ **Sessions survive** bot restarts thanks to Redis
 - ✅ **Automatic token refresh** handles expired tokens
 - ✅ **HTML formatting** prevents parsing errors from special characters
+
+### Production Mode (Webhook)
+- ⚠️ **HTTPS is required** - Telegram only accepts HTTPS webhooks
+- ⚠️ **SSL certificate** must be valid and trusted
+- ⚠️ **Reverse proxy** (nginx/traefik) recommended for HTTPS termination
+- ⚠️ **Firewall configuration** - allow Telegram IPs or whitelist your server
+- ✅ **Faster response** - real-time updates instead of polling
+- ✅ **Lower server load** - only processes actual updates
+- ✅ **Automatic webhook setup** on bot startup
+- ✅ **Webhook secret** adds extra security layer
 
 ---
 

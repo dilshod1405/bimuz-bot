@@ -14,6 +14,7 @@ services:
       retries: 5
     networks:
       - bimuz-network
+      - backend  # Connect to backend network for API access
 
   bot:
     image: bimuz-bot:latest
@@ -23,11 +24,14 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      # Use internal API URL if available, fallback to external
+      - API_BASE_URL=${API_BASE_URL:-http://api:8000}
     depends_on:
       redis:
         condition: service_healthy
     networks:
       - bimuz-network
+      - backend  # Connect to backend network for API access
     volumes:
       - ./logs:/app/logs
     healthcheck:
@@ -44,3 +48,5 @@ volumes:
 networks:
   bimuz-network:
     driver: bridge
+  backend:
+    external: true  # Use existing backend network from server compose

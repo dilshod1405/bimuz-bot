@@ -244,11 +244,19 @@ def get_employees_list_keyboard(employees: list, page: int = 0, per_page: int = 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_employee_detail_keyboard() -> InlineKeyboardMarkup:
+def get_employee_detail_keyboard(employee_id: int, role: Optional[str] = None) -> InlineKeyboardMarkup:
     """Get keyboard for employee detail view."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_employees")]
-    ])
+    keyboard = [
+        [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_employee_{employee_id}")],
+    ]
+    
+    # Only Developer or Administrator can delete
+    if role in ['dasturchi', 'administrator']:
+        keyboard.append([InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"delete_employee_{employee_id}")])
+    
+    keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_employees")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_yes_no_keyboard(action: str) -> InlineKeyboardMarkup:
