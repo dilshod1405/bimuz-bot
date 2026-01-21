@@ -16,10 +16,10 @@ Telegram bot for BIMUZ employees. It is a **convenience interface** over `bimuz-
 
 ```mermaid
 flowchart LR
-  U[Telegram user] --> BOT[bimuz-bot (aiogram)]
-  BOT -->|JWT| API[bimuz-api]
-  BOT --> RS[(Redis sessions)]
-  API --> DB[(PostgreSQL)]
+  U["Telegram user"] --> BOT["bimuz-bot (aiogram)"];
+  BOT -->|JWT| API["bimuz-api"];
+  BOT --> RS[("Redis sessions")];
+  API --> DB[("PostgreSQL")];
 ```
 
 ---
@@ -89,9 +89,9 @@ Current menu contains:
 
 ```mermaid
 flowchart TB
-  H[Handlers] --> C[APIClient]
-  C --> API[bimuz-api]
-  H --> S[Redis storage]
+  H["Handlers"] --> C["APIClient"];
+  C --> API["bimuz-api"];
+  H --> S["Redis storage"];
 ```
 
 ---
