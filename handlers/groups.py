@@ -15,6 +15,11 @@ from keyboards import (
 )
 from utils import extract_list_from_response, truncate_message, truncate_alert_message, safe_html_text, format_error_message
 import logging
+from permissions import (
+    can_create_group,
+    can_update_group,
+    can_delete_group,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +63,14 @@ async def cmd_groups(message: Message):
                 await message.answer(
                     "📚 Guruhlar ro'yxati bo'sh.\n\n"
                     "Yangi guruh qo'shish uchun quyidagi tugmani bosing:",
-                    reply_markup=get_groups_list_keyboard([], page=0)
+                    reply_markup=get_groups_list_keyboard([], page=0, role=role)
                 )
             else:
                 text = f"📚 <b>Guruhlar ro'yxati</b> ({len(groups)} ta)\n\n"
                 text += "Quyidagilardan birini tanlang:"
                 await message.answer(
                     text,
-                    reply_markup=get_groups_list_keyboard(groups, page=0),
+                    reply_markup=get_groups_list_keyboard(groups, page=0, role=role),
                     parse_mode="HTML"
                 )
     except Exception as e:
@@ -79,6 +84,8 @@ async def groups_pagination(callback: CallbackQuery):
     page = int(callback.data.split("_")[-1])
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -86,7 +93,7 @@ async def groups_pagination(callback: CallbackQuery):
             groups = extract_list_from_response(response)
             
             await callback.message.edit_reply_markup(
-                reply_markup=get_groups_list_keyboard(groups, page=page)
+                reply_markup=get_groups_list_keyboard(groups, page=page, role=role)
             )
             await callback.answer()
     except Exception as e:
@@ -156,6 +163,8 @@ async def back_to_groups(callback: CallbackQuery):
     """Go back to groups list."""
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -167,7 +176,7 @@ async def back_to_groups(callback: CallbackQuery):
             
             await callback.message.edit_text(
                 text,
-                reply_markup=get_groups_list_keyboard(groups, page=0),
+                reply_markup=get_groups_list_keyboard(groups, page=0, role=role),
                 parse_mode="HTML"
             )
             await callback.answer()
@@ -185,7 +194,7 @@ async def create_group_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'direktor', 'administrator']:
+    if not can_create_group(role):
         await callback.answer("❌ Guruh yaratish uchun Dasturchi, Direktor yoki Administrator roli kerak.", show_alert=True)
         return
 
@@ -416,7 +425,7 @@ async def edit_group_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'direktor', 'administrator']:
+    if not can_update_group(role):
         await callback.answer("❌ Guruhni tahrirlash uchun Dasturchi, Direktor yoki Administrator roli kerak.", show_alert=True)
         return
 
@@ -791,7 +800,7 @@ async def delete_group_confirm(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'direktor', 'administrator']:
+    if not can_delete_group(role):
         await callback.answer("❌ Guruhni o'chirish uchun Dasturchi, Direktor yoki Administrator roli kerak.", show_alert=True)
         return
     
@@ -845,7 +854,7 @@ async def delete_group_execute(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'direktor', 'administrator']:
+    if not can_delete_group(role):
         await callback.answer("❌ Ruxsat yo'q.", show_alert=True)
         return
     

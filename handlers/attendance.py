@@ -6,6 +6,7 @@ from storage import user_storage
 from keyboards import get_main_menu_keyboard
 from utils import extract_list_from_response, truncate_message, truncate_alert_message
 import logging
+from permissions import can_view_attendance
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,8 @@ async def cmd_attendances(message: Message):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
     
-    # Check if user has permission
-    if role not in ['administrator', 'mentor', 'dasturchi']:
-        await message.answer("❌ Bu bo'lim faqat administrator, mentor yoki dasturchilar uchun.")
+    if not can_view_attendance(role):
+        await message.answer("❌ Bu bo'limga kirish uchun ruxsat yo'q.")
         return
     
     access_token = await user_storage.get_access_token(user_id)
@@ -43,13 +43,36 @@ async def cmd_attendances(message: Message):
                 )
             else:
                 text = f"📋 **Davomatlar ro'yxati** ({len(attendances)} ta)\n\n"
-                
-                for attendance in attendances[:10]:  # Show first 10
+
+                # Build a small cache for group -> mentor_name (avoid N+1)
+                group_mentor_cache = {}
+                preview_attendances = attendances[:10]  # Show first 10
+                for a in preview_attendances:
+                    gid = a.get('group')
+                    if gid and gid not in group_mentor_cache:
+                        # Some API responses might already include mentor_name
+                        if a.get('mentor_name'):
+                            group_mentor_cache[gid] = a.get('mentor_name')
+                            continue
+                        try:
+                            g_resp = await client.get_group(gid)
+                            if isinstance(g_resp, dict) and g_resp.get('success'):
+                                g_data = g_resp.get('data', {}) or {}
+                                group_mentor_cache[gid] = g_data.get('mentor_name') or g_data.get('mentor') or 'N/A'
+                            else:
+                                group_mentor_cache[gid] = 'N/A'
+                        except Exception:
+                            group_mentor_cache[gid] = 'N/A'
+
+                for attendance in preview_attendances:
                     group_name = attendance.get('group_name', 'N/A')
                     date = attendance.get('date', 'N/A')[:10] if attendance.get('date') else 'N/A'
                     participants_count = len(attendance.get('participants', []))
+                    gid = attendance.get('group')
+                    mentor_name = attendance.get('mentor_name') or (group_mentor_cache.get(gid) if gid else None) or 'N/A'
                     
                     text += f"📅 {date} - {group_name}\n"
+                    text += f"   Mentor: {mentor_name}\n"
                     text += f"   Qatnashganlar: {participants_count}\n\n"
                 
                 if len(attendances) > 10:

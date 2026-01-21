@@ -1,6 +1,18 @@
 """Keyboard layouts for the bot."""
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from typing import Optional
+from permissions import (
+    can_create_student,
+    can_update_student,
+    can_delete_student,
+    can_book_student_to_group,
+    can_create_group,
+    can_update_group,
+    can_delete_group,
+    can_create_employee,
+    can_update_employee,
+    can_delete_employee,
+)
 
 
 def get_main_menu_keyboard(role: Optional[str] = None) -> ReplyKeyboardMarkup:
@@ -12,18 +24,16 @@ def get_main_menu_keyboard(role: Optional[str] = None) -> ReplyKeyboardMarkup:
     keyboard.append([KeyboardButton(text="👥 Talabalar")])
     keyboard.append([KeyboardButton(text="📚 Guruhlar")])
     keyboard.append([KeyboardButton(text="💳 To'lovlar")])
+    keyboard.append([KeyboardButton(text="👨‍💼 Xodimlar")])
     
     # Role-specific buttons
     if role == 'dasturchi':
-        keyboard.append([KeyboardButton(text="👨‍💼 Xodimlar")])
         keyboard.append([KeyboardButton(text="📊 Analitika")])
     
-    # Attendance for administrator and mentor
-    if role in ['administrator', 'mentor', 'dasturchi']:
-        keyboard.append([KeyboardButton(text="📋 Davomatlar")])
+    # Attendance: allow everyone to open (read)
+    keyboard.append([KeyboardButton(text="📋 Davomatlar")])
     
-    # Reports and Documents for all employees
-    keyboard.append([KeyboardButton(text="📄 Hisobotlar")])
+    # Documents (Reports are disabled in bot due to financial info)
     keyboard.append([KeyboardButton(text="📁 Hujjatlar")])
     
     keyboard.append([KeyboardButton(text="❌ Chiqish")])
@@ -53,7 +63,12 @@ def get_back_inline_keyboard(callback_data: str = "back_to_groups") -> InlineKey
     ])
 
 
-def get_students_list_keyboard(students: list, page: int = 0, per_page: int = 10) -> InlineKeyboardMarkup:
+def get_students_list_keyboard(
+    students: list,
+    page: int = 0,
+    per_page: int = 10,
+    role: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """Get keyboard for students list with pagination."""
     keyboard = []
     
@@ -79,7 +94,8 @@ def get_students_list_keyboard(students: list, page: int = 0, per_page: int = 10
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    keyboard.append([InlineKeyboardButton(text="➕ Yangi talaba", callback_data="create_student")])
+    if can_create_student(role):
+        keyboard.append([InlineKeyboardButton(text="➕ Yangi talaba", callback_data="create_student")])
     keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -87,13 +103,14 @@ def get_students_list_keyboard(students: list, page: int = 0, per_page: int = 10
 
 def get_student_detail_keyboard(student_id: int, role: Optional[str] = None) -> InlineKeyboardMarkup:
     """Get keyboard for student detail view."""
-    keyboard = [
-        [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_student_{student_id}")],
-        [InlineKeyboardButton(text="📚 Guruhga yozish", callback_data=f"book_student_{student_id}")],
-    ]
+    keyboard = []
+
+    if can_update_student(role):
+        keyboard.append([InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_student_{student_id}")])
+    if can_book_student_to_group(role):
+        keyboard.append([InlineKeyboardButton(text="📚 Guruhga yozish", callback_data=f"book_student_{student_id}")])
     
-    # Only Developer or Administrator can delete
-    if role in ['dasturchi', 'administrator']:
+    if can_delete_student(role):
         keyboard.append([InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"delete_student_{student_id}")])
     
     keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_students")])
@@ -101,7 +118,12 @@ def get_student_detail_keyboard(student_id: int, role: Optional[str] = None) -> 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_groups_list_keyboard(groups: list, page: int = 0, per_page: int = 10) -> InlineKeyboardMarkup:
+def get_groups_list_keyboard(
+    groups: list,
+    page: int = 0,
+    per_page: int = 10,
+    role: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """Get keyboard for groups list with pagination."""
     keyboard = []
     
@@ -127,7 +149,8 @@ def get_groups_list_keyboard(groups: list, page: int = 0, per_page: int = 10) ->
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    keyboard.append([InlineKeyboardButton(text="➕ Yangi guruh", callback_data="create_group")])
+    if can_create_group(role):
+        keyboard.append([InlineKeyboardButton(text="➕ Yangi guruh", callback_data="create_group")])
     keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -137,8 +160,9 @@ def get_group_detail_keyboard(group_id: int, role: Optional[str] = None) -> Inli
     """Get keyboard for group detail view."""
     keyboard = []
     
-    if role in ['dasturchi', 'direktor', 'administrator']:
+    if can_update_group(role):
         keyboard.append([InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_group_{group_id}")])
+    if can_delete_group(role):
         keyboard.append([InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"delete_group_{group_id}")])
     
     keyboard.append([InlineKeyboardButton(text="📋 Davomat", callback_data=f"attendance_group_{group_id}")])
@@ -212,7 +236,12 @@ def get_invoice_detail_keyboard(invoice_id: int, is_paid: bool = False, status: 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_employees_list_keyboard(employees: list, page: int = 0, per_page: int = 10) -> InlineKeyboardMarkup:
+def get_employees_list_keyboard(
+    employees: list,
+    page: int = 0,
+    per_page: int = 10,
+    role: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """Get keyboard for employees list with pagination."""
     keyboard = []
     
@@ -238,20 +267,20 @@ def get_employees_list_keyboard(employees: list, page: int = 0, per_page: int = 
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    keyboard.append([InlineKeyboardButton(text="➕ Yangi xodim", callback_data="create_employee")])
+    if can_create_employee(role):
+        keyboard.append([InlineKeyboardButton(text="➕ Yangi xodim", callback_data="create_employee")])
     keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_employee_detail_keyboard(employee_id: int, role: Optional[str] = None) -> InlineKeyboardMarkup:
+def get_employee_detail_keyboard(employee_id: int, role: Optional[str] = None, target_role: Optional[str] = None) -> InlineKeyboardMarkup:
     """Get keyboard for employee detail view."""
-    keyboard = [
-        [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_employee_{employee_id}")],
-    ]
+    keyboard = []
+    if can_update_employee(role, target_role):
+        keyboard.append([InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"edit_employee_{employee_id}")])
     
-    # Only Developer or Administrator can delete
-    if role in ['dasturchi', 'administrator']:
+    if can_delete_employee(role, target_role):
         keyboard.append([InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"delete_employee_{employee_id}")])
     
     keyboard.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_employees")])

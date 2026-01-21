@@ -1,100 +1,79 @@
-# 🤖 BIMUZ Telegram Bot
+# BIMUZ Telegram Bot (aiogram)
 
-<div align="center">
+Telegram bot for BIMUZ employees. It is a **convenience interface** over `bimuz-api` and follows the same RBAC strategy as the dashboard, but with one important security decision:
 
-**Telegram bot for BIMUZ education management system**
+> **Reports (Hisobotlar) are disabled in the bot** because they contain sensitive financial information.
 
-*Employee interface for backend API through Telegram*
+## Table of contents
 
-[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
-[![aiogram](https://img.shields.io/badge/aiogram-3.24.0-green.svg)](https://docs.aiogram.dev/)
-[![Redis](https://img.shields.io/badge/Redis-5.0-red.svg)](https://redis.io/)
+- [Overview](#overview)
+- [Security & RBAC strategy](#security--rbac-strategy)
+- [Main menu](#main-menu)
+- [Feature modules](#feature-modules)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Project structure](#project-structure)
 
-</div>
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#-overview)
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Project Structure](#-project-structure)
-- [Technology Stack](#-technology-stack)
-
----
-
-## 🎯 Overview
-
-BIMUZ Telegram Bot is a comprehensive employee interface for the BIMUZ education management system. It provides role-based access to manage students, groups, payments, attendance, and more through an intuitive Telegram interface.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Telegram User                            │
-│                         │                                   │
-│                         ▼                                   │
-│              ┌──────────────────────┐                       │
-│              │   BIMUZ Telegram Bot │                       │
-│              │   (aiogram 3.24)     │                       │
-│              └──────────┬───────────┘                       │
-│                         │                                   │
-│                         ▼                                   │
-│              ┌──────────────────────┐                       │
-│              │   Redis Storage      │                       │
-│              │   (Session Cache)    │                       │
-│              └──────────┬───────────┘                       │
-│                         │                                   │
-│                         ▼                                   | 
-│         ┌───────────────────────────────┐                   │
-│         │   BIMUZ Backend API           │                   │
-│         │   (Django REST Framework)     │                   │
-│         └───────────────────────────────┘                   │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  U[Telegram user] --> BOT[bimuz-bot (aiogram)]
+  BOT -->|JWT| API[bimuz-api]
+  BOT --> RS[(Redis sessions)]
+  API --> DB[(PostgreSQL)]
 ```
 
 ---
 
-## ✨ Features
+## Security & RBAC strategy
 
-### 🔐 Authentication & Authorization
-- **JWT-based authentication** with automatic token refresh
-- **Role-based access control** (RBAC)
-- **Persistent sessions** using Redis (survives bot restarts)
-- **Secure token management**
+### Centralized permissions
+All UI gating (what buttons appear) and handler checks use:
+- `permissions.py`
+- `keyboards.py` hides actions if permission is not granted (e.g. if role cannot create a student, **“➕ Yangi talaba”** will not appear).
 
-### 👥 Student Management
-- ✅ View students list with pagination
-- ✅ Create new students with validation
-- ✅ Edit student information (name, phone, passport, etc.)
-- ✅ Book students to groups
-- ✅ Delete students (Developer/Administrator only)
-- ✅ Phone & passport format validation
+### Role hierarchy
+**Dasturchi > Direktor > Administrator > Buxgalter > (Mentor / Sotuv agenti / Assistent)**
 
-### 📚 Group Management
-- ✅ View groups list with pagination
-- ✅ Create new groups (Developer/Director/Administrator)
-- ✅ Edit group details (speciality, dates, time, price, etc.)
-- ✅ Delete groups (Developer/Director/Administrator)
-- ✅ View group details and statistics
+### Reports are disabled
+- No “📄 Hisobotlar” in the main menu
+- Even if user sends the text manually, bot responds with “not available via bot”
+- `reports.router` is not registered in `bot.py`
 
-### 💳 Payment Management
-- ✅ View invoices list with search & filter
-- ✅ View invoice details with payment progress
-- ✅ Create payment links via Multicard
-- ✅ Track partial payments (installment support)
-- ✅ Payment status filtering
+## Main menu
 
-### 📋 Attendance Tracking
-- ✅ View attendance records
-- ✅ Filter by group and date
-- ✅ View attendance details
+Current menu contains:
+- 👤 Profil
+- 👥 Talabalar
+- 📚 Guruhlar
+- 💳 To'lovlar (student invoices)
+- 👨‍💼 Xodimlar (read for all; CRUD role-based)
+- 📋 Davomatlar
+- 📁 Hujjatlar
+- ❌ Chiqish
 
-### 👨‍💼 Employee Management
-- ✅ View employees list (Developer only)
-- ✅ View employee details
+## Feature modules
+
+### Students (Talabalar)
+- Read list + detail for authenticated users
+- Create/Edit/Delete buttons appear only if role has permission
+- Booking to group is also permission gated
+
+### Groups (Guruhlar)
+- Read list + detail
+- Create/Edit/Delete are permission gated and hidden when not allowed
+
+### Payments (To'lovlar)
+- Student invoices only (search, filter, details)
+- Payment links can be generated if invoice is not paid/cancelled
+
+### Attendances (Davomatlar)
+- Read attendances list
+- List shows group name + date + participants count
+- Also shows **mentor name** for each attendance (resolved from group when needed)
+
+### Employees (Xodimlar)
+- Employees list is readable for all authenticated roles
+- Edit/Delete actions are hidden unless allowed by role hierarchy rules
 
 ### 📊 Additional Features
 - ✅ **Search functionality** in payments
@@ -106,35 +85,18 @@ BIMUZ Telegram Bot is a comprehensive employee interface for the BIMUZ education
 
 ---
 
-## 🏗️ Architecture
+## Architecture (high level)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Bot Architecture                        │
-└─────────────────────────────────────────────────────────────────┘
-
-┌──────────────┐       ┌──────────────┐       ┌─────────────┐
-│   Handlers   │──────▶│  API Client  │──────▶│   Backend   │
-│              │       │              │       │     API     │
-│  - auth      │       │  - Requests  │       │             │
-│  - students  │       │  - Refresh   │       │  - Django   │
-│  - groups    │       │  - Errors    │       │  - DRF      │
-│  - payments  │       │              │       │             │
-│  - employees │       └──────────────┘       └─────────────┘
-│  - attendance│              │
-│  - reports   │              │
-│  - documents │              ▼
-└──────────────┘       ┌──────────────┐
-                       │   Storage    │
-                       │    Redis     │
-                       │  - Sessions  │
-                       │  - Tokens    │
-                       └──────────────┘
+```mermaid
+flowchart TB
+  H[Handlers] --> C[APIClient]
+  C --> API[bimuz-api]
+  H --> S[Redis storage]
 ```
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
@@ -228,7 +190,7 @@ python bot.py
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -245,26 +207,14 @@ python bot.py
 
 \* Required when `BOT_MODE=prod`
 
-### Role-Based Access
+### Role-based access (summary)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Access Matrix                        │
-├─────────────────────────────────────────────────────────┤
-│ Feature          │ Dev │ Dir │ Adm │ Men │ Sal │ Ass    │
-├─────────────────────────────────────────────────────────┤
-│ Students         │  ✅ │  ✅ │  ✅ │  ✅ │  ✅ │  ✅    │
-│ Groups           │  ✅ │  ✅ │  ✅ │  ✅ │  ✅ │  ✅    │
-│ Payments         │  ✅ │  ✅ │  ✅ │  ✅ │  ✅ │  ✅    │
-│ Attendance       │  ✅ │  ✅ │  ✅ │  ✅ │  ❌ │  ❌    │
-│ Employees        │  ✅ │  ❌ │  ❌ │  ❌ │  ❌ │  ❌    │
-│ Analytics        │  ✅ │  ❌ │  ❌ │  ❌ │  ❌ │  ❌    │
-│ Create Students  │  ✅ │  ✅ │  ✅ │  ❌ │  ❌ │  ❌    │
-│ Create Groups    │  ✅ │  ✅ │  ✅ │  ❌ │  ❌ │  ❌    │
-│ Delete Students  │  ✅ │  ❌ │  ✅ │  ❌ │  ❌ │  ❌    │
-│ Delete Groups    │  ✅ │  ✅ │  ✅ │  ❌ │  ❌ │  ❌    │
-└─────────────────────────────────────────────────────────┘
-```
+Bot uses `permissions.py` as a single source for:
+- Create/Update/Delete Students
+- Create/Update/Delete Groups
+- Employee CRUD restrictions by hierarchy
+
+> Reports are intentionally excluded from bot access.
 
 **Roles:**
 - **Dev** = Dasturchi (Developer)
@@ -276,7 +226,7 @@ python bot.py
 
 ---
 
-## 📖 Usage
+## Usage
 
 ### Starting the Bot
 
@@ -285,24 +235,10 @@ python bot.py
 3. **Enter your password** when prompted
 4. **Access the main menu** with role-based buttons
 
-### Main Menu Navigation
-
-```
-┌─────────────────────────────────────┐
-│         Main Menu                   │
-├─────────────────────────────────────┤
-│  👤 Profil                          │
-│  👥 Talabalar                       │
-│  📚 Guruhlar                        │
-│  💳 To'lovlar                       │
-│  📋 Davomatlar                      │
-│  📄 Hisobotlar                      │
-│  📁 Hujjatlar                       │
-│  👨‍💼 Xodimlar (Dev only)             │
-│  📊 Analitika (Dev only)            │
-│  ❌ Chiqish                         │
-└─────────────────────────────────────┘
-```
+### UI behavior note
+If a role cannot perform an action, bot will:
+- hide the action button in inline keyboards (create/edit/delete)
+- and still validate permission inside the handler (backend safe)
 
 ### Example Workflows
 
@@ -330,7 +266,7 @@ User → 💳 To'lovlar → 🔍 Qidirish
 
 ---
 
-## 📁 Project Structure
+## Project structure
 
 ```
 bimuz-bot/
@@ -349,7 +285,7 @@ bimuz-bot/
 │   ├── 💳 payments.py         # Payment handlers
 │   ├── 👨‍💼 employees.py      # Employee management
 │   ├── 📋 attendance.py       # Attendance handlers
-│   ├── 📄 reports.py          # Reports handlers
+│   ├── 📄 reports.py          # Reports handler file (disabled; router not registered)
 │   ├── 📁 documents.py        # Documents handlers
 │   └── 🔄 common.py           # Common handlers
 │
@@ -362,7 +298,7 @@ bimuz-bot/
 
 ---
 
-## 🛠️ Technology Stack
+## Technology stack
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -401,7 +337,7 @@ bimuz-bot/
 
 ---
 
-## 🔄 Data Flow
+## Data flow
 
 ```
 ┌─────────────┐
@@ -456,7 +392,7 @@ bimuz-bot/
 
 ---
 
-## 🔑 Key Features Explained
+## Notes
 
 ### Session Management
 - **Redis-based storage** ensures sessions persist across bot restarts
@@ -502,51 +438,4 @@ bimuz-bot/
 
 ---
 
-## 🎨 Visual Examples
-
-### Student List View
-```
-👥 Talabalar ro'yxati (15 ta)
-
-Quyidagilardan birini tanlang:
-
-[#1 - Ali Valiyev - 2500000.00 so'm]
-[#2 - Vali Aliyev - 3000000.00 so'm]
-[#3 - Hasan Husanov - 2000000.00 so'm]
-
-[⬅️ Oldingi] [Keyingi ➡️]
-[➕ Yangi talaba]
-[🔙 Orqaga]
-```
-
-### Invoice Detail View
-```
-✅ To'lov ma'lumotlari
-
-ID: 36
-Talaba: Ali Valiyev
-Telefon: +998945130301
-Guruh: Revit Architecture - Dushanba - Chorshanba - Juma
-Summa: 2500000.00 so'm
-Holat: ✅ To'langan
-
-To'langan: 1,250,000.00 so'm / Jami: 2,500,000.00 so'm
-Qolgan: 1,250,000.00 so'm
-
-To'lov vaqti: 2026-01-19 17:24:41
-To'lov usuli: uzcard
-Chek: https://dev-checkout.multicard.uz/check/...
-
-[💳 To'lov linkini yaratish]
-[🔙 Orqaga]
-```
-
----
-
-## 🚦 Status
-
-✅ **Production Ready** - All core features implemented and tested
-
-**Current Version:** 1.0.0
-
-**Last Updated:** January 2026
+Last updated: January 2026

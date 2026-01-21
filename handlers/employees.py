@@ -1,4 +1,8 @@
-"""Employee management handlers (for developers only)."""
+"""Employee management handlers.
+
+RBAC is centralized in permissions.py (same strategy as dashboard).
+All authenticated roles can READ employees, but CRUD is role-based.
+"""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -14,6 +18,13 @@ from keyboards import (
 )
 from utils import extract_list_from_response, truncate_message, truncate_alert_message, safe_html_text, format_error_message
 import logging
+from permissions import (
+    can_view_employees,
+    can_create_employee,
+    can_update_employee,
+    can_delete_employee,
+    get_assignable_roles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +49,7 @@ class EditEmployeeStates(StatesGroup):
 
 @router.message(F.text == "👨‍💼 Xodimlar")
 async def cmd_employees(message: Message):
-    """Show employees list (only for developers)."""
+    """Show employees list (read allowed for all authenticated roles)."""
     user_id = message.from_user.id
     
     if not await user_storage.is_authenticated(user_id):
@@ -48,8 +59,8 @@ async def cmd_employees(message: Message):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
     
-    if role != 'dasturchi':
-        await message.answer("❌ Bu bo'lim faqat dasturchilar uchun.")
+    if not can_view_employees(role):
+        await message.answer("❌ Bu bo'limga kirish uchun ruxsat yo'q.")
         return
     
     access_token = await user_storage.get_access_token(user_id)
@@ -63,14 +74,14 @@ async def cmd_employees(message: Message):
                 await message.answer(
                     "👨‍💼 Xodimlar ro'yxati bo'sh.\n\n"
                     "Yangi xodim qo'shish uchun quyidagi tugmani bosing:",
-                    reply_markup=get_employees_list_keyboard([], page=0)
+                    reply_markup=get_employees_list_keyboard([], page=0, role=role)
                 )
             else:
                 text = f"👨‍💼 <b>Xodimlar ro'yxati</b> ({len(employees)} ta)\n\n"
                 text += "Quyidagilardan birini tanlang:"
                 await message.answer(
                     text,
-                    reply_markup=get_employees_list_keyboard(employees, page=0),
+                    reply_markup=get_employees_list_keyboard(employees, page=0, role=role),
                     parse_mode="HTML"
                 )
     except Exception as e:
@@ -84,6 +95,8 @@ async def employees_pagination(callback: CallbackQuery):
     page = int(callback.data.split("_")[-1])
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -91,7 +104,7 @@ async def employees_pagination(callback: CallbackQuery):
             employees = extract_list_from_response(response)
             
             await callback.message.edit_reply_markup(
-                reply_markup=get_employees_list_keyboard(employees, page=page)
+                reply_markup=get_employees_list_keyboard(employees, page=page, role=role)
             )
             await callback.answer()
     except Exception as e:
@@ -115,6 +128,7 @@ async def show_employee_detail(callback: CallbackQuery):
             
             if response.get('success'):
                 employee_data = response.get('data', {})
+                target_role = employee_data.get('role')
                 
                 text = (
                     f"👨‍💼 <b>Xodim ma'lumotlari</b>\n\n"
@@ -133,7 +147,7 @@ async def show_employee_detail(callback: CallbackQuery):
                 text = truncate_message(text, max_length=4000)
                 await callback.message.edit_text(
                     text,
-                    reply_markup=get_employee_detail_keyboard(employee_id, role=role),
+                    reply_markup=get_employee_detail_keyboard(employee_id, role=role, target_role=target_role),
                     parse_mode="HTML"
                 )
                 await callback.answer()
@@ -152,6 +166,8 @@ async def back_to_employees(callback: CallbackQuery):
     """Go back to employees list."""
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -163,7 +179,7 @@ async def back_to_employees(callback: CallbackQuery):
             
             await callback.message.edit_text(
                 text,
-                reply_markup=get_employees_list_keyboard(employees, page=0),
+                reply_markup=get_employees_list_keyboard(employees, page=0, role=role),
                 parse_mode="HTML"
             )
             await callback.answer()
@@ -185,9 +201,8 @@ async def create_employee_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
     
-    # Check if user has permission (only Developer can create employees)
-    if role != 'dasturchi':
-        await callback.answer("❌ Bu amalni bajarish uchun Dasturchi roli kerak.", show_alert=True)
+    if not can_create_employee(role):
+        await callback.answer("❌ Bu amalni bajarish uchun ruxsat yo'q.", show_alert=True)
         return
     
     await callback.message.answer(
@@ -288,17 +303,27 @@ async def process_employee_password_confirm(message: Message, state: FSMContext)
     
     await state.update_data(password_confirm=password_confirm)
     
-    # Show role selection keyboard
+    # Show role selection keyboard (filtered by permissions)
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👨‍💻 Dasturchi", callback_data="role_dasturchi")],
-        [InlineKeyboardButton(text="👔 Direktor", callback_data="role_direktor")],
-        [InlineKeyboardButton(text="👨‍💼 Administrator", callback_data="role_administrator")],
-        [InlineKeyboardButton(text="👨‍🏫 Mentor", callback_data="role_mentor")],
-        [InlineKeyboardButton(text="👨‍💼 Sotuv Agenti", callback_data="role_sotuv_agenti")],
-        [InlineKeyboardButton(text="👨‍🎓 Assistent", callback_data="role_assistent")],
-        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_create_employee")]
-    ])
+    user_id = message.from_user.id
+    current_employee = await user_storage.get_employee(user_id)
+    current_role = current_employee.get('role') if current_employee else None
+
+    role_names = {
+        'dasturchi': '👨‍💻 Dasturchi',
+        'direktor': '👔 Direktor',
+        'administrator': '👨‍💼 Administrator',
+        'mentor': '👨‍🏫 Mentor',
+        'sotuv_agenti': '👨‍💼 Sotuv Agenti',
+        'assistent': '👨‍🎓 Assistent',
+        'buxgalter': '💰 Buxgalter'
+    }
+
+    rows = []
+    for r in get_assignable_roles(current_role):
+        rows.append([InlineKeyboardButton(text=role_names.get(r, r), callback_data=f"role_{r}")])
+    rows.append([InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_create_employee")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
     
     await message.answer(
         "Rolni tanlang:",
@@ -319,7 +344,8 @@ async def process_employee_role(callback: CallbackQuery, state: FSMContext):
         'administrator': 'Administrator',
         'mentor': 'Mentor',
         'sotuv_agenti': 'Sotuv Agenti',
-        'assistent': 'Assistent'
+        'assistent': 'Assistent',
+        'buxgalter': 'Buxgalter'
     }
     
     await callback.message.edit_text(f"✅ Rol tanlandi: {role_names.get(role, role)}")
@@ -401,10 +427,6 @@ async def edit_employee_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'administrator']:
-        await callback.answer("❌ Xodimni tahrirlash uchun Dasturchi yoki Administrator roli kerak.", show_alert=True)
-        return
-
     access_token = await user_storage.get_access_token(user_id)
     
     try:
@@ -413,6 +435,10 @@ async def edit_employee_start(callback: CallbackQuery, state: FSMContext):
             
             if response.get('success'):
                 employee_data = response.get('data', {})
+                target_role = employee_data.get('role')
+                if not can_update_employee(role, target_role):
+                    await callback.answer("❌ Xodimni tahrirlash uchun ruxsat yo'q.", show_alert=True)
+                    return
                 await state.update_data(employee_id=employee_id, employee_data=employee_data)
                 
                 is_active = employee_data.get('is_active', False)
@@ -480,17 +506,24 @@ async def process_edit_employee_field(message: Message, state: FSMContext):
         await state.update_data(field_name=field_name, field_value=new_value)
         await update_employee_field(message, state)
     elif field_name == 'role':
-        # Show inline keyboard for role selection
+        # Show inline keyboard for role selection (filtered)
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👨‍💻 Dasturchi", callback_data="edit_role_dasturchi")],
-            [InlineKeyboardButton(text="👔 Direktor", callback_data="edit_role_direktor")],
-            [InlineKeyboardButton(text="👨‍💼 Administrator", callback_data="edit_role_administrator")],
-            [InlineKeyboardButton(text="👨‍🏫 Mentor", callback_data="edit_role_mentor")],
-            [InlineKeyboardButton(text="👨‍💼 Sotuv Agenti", callback_data="edit_role_sotuv_agenti")],
-            [InlineKeyboardButton(text="👨‍🎓 Assistent", callback_data="edit_role_assistent")],
-            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_edit_employee")]
-        ])
+        user_emp = await user_storage.get_employee(message.from_user.id)
+        user_role = user_emp.get('role') if user_emp else None
+        role_names = {
+            'dasturchi': '👨‍💻 Dasturchi',
+            'direktor': '👔 Direktor',
+            'administrator': '👨‍💼 Administrator',
+            'mentor': '👨‍🏫 Mentor',
+            'sotuv_agenti': '👨‍💼 Sotuv Agenti',
+            'assistent': '👨‍🎓 Assistent',
+            'buxgalter': '💰 Buxgalter'
+        }
+        rows = []
+        for r in get_assignable_roles(user_role):
+            rows.append([InlineKeyboardButton(text=role_names.get(r, r), callback_data=f"edit_role_{r}")])
+        rows.append([InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_edit_employee")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
         await message.answer("Yangi rolni tanlang:", reply_markup=keyboard)
         await state.set_state(EditEmployeeStates.waiting_for_value)
     else:
@@ -522,7 +555,8 @@ async def process_edit_role_callback(callback: CallbackQuery, state: FSMContext)
         'administrator': 'Administrator',
         'mentor': 'Mentor',
         'sotuv_agenti': 'Sotuv Agenti',
-        'assistent': 'Assistent'
+        'assistent': 'Assistent',
+        'buxgalter': 'Buxgalter'
     }
     
     await callback.message.edit_text(f"✅ Rol tanlandi: {role_names.get(role, role)}")
@@ -635,10 +669,6 @@ async def delete_employee_confirm(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
-
-    if role not in ['dasturchi', 'administrator']:
-        await callback.answer("❌ Xodimni o'chirish uchun Dasturchi yoki Administrator roli kerak.", show_alert=True)
-        return
     
     access_token = await user_storage.get_access_token(user_id)
     
@@ -649,6 +679,10 @@ async def delete_employee_confirm(callback: CallbackQuery, state: FSMContext):
             
             if response.get('success'):
                 employee_data = response.get('data', {})
+                target_role = employee_data.get('role')
+                if not can_delete_employee(role, target_role):
+                    await callback.answer("❌ Xodimni o'chirish uchun ruxsat yo'q.", show_alert=True)
+                    return
                 await state.update_data(employee_id=employee_id)
                 
                 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -690,15 +724,18 @@ async def delete_employee_execute(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
-
-    if role not in ['dasturchi', 'administrator']:
-        await callback.answer("❌ Ruxsat yo'q.", show_alert=True)
-        return
     
     access_token = await user_storage.get_access_token(user_id)
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
+            # Re-check permission using current target data (safer)
+            emp_resp = await client.get_employee(employee_id)
+            if emp_resp.get('success'):
+                target_role = emp_resp.get('data', {}).get('role')
+                if not can_delete_employee(role, target_role):
+                    await callback.answer("❌ Ruxsat yo'q.", show_alert=True)
+                    return
             response = await client.delete_employee(employee_id)
             
             if response.get('success'):
@@ -717,7 +754,7 @@ async def delete_employee_execute(callback: CallbackQuery, state: FSMContext):
                 
                 await callback.message.answer(
                     text,
-                    reply_markup=get_employees_list_keyboard(employees, page=0),
+                    reply_markup=get_employees_list_keyboard(employees, page=0, role=role),
                     parse_mode="HTML"
                 )
             else:

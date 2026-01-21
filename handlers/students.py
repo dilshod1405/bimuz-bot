@@ -14,6 +14,12 @@ from keyboards import (
 )
 from utils import extract_list_from_response, format_error_message, truncate_message, truncate_alert_message, safe_html_text, validate_phone, validate_passport
 import logging
+from permissions import (
+    can_create_student,
+    can_update_student,
+    can_delete_student,
+    can_book_student_to_group,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +55,8 @@ async def cmd_students(message: Message):
         return
     
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -59,14 +67,14 @@ async def cmd_students(message: Message):
                 await message.answer(
                     "📋 Talabalar ro'yxati bo'sh.\n\n"
                     "Yangi talaba qo'shish uchun quyidagi tugmani bosing:",
-                    reply_markup=get_students_list_keyboard([], page=0)
+                    reply_markup=get_students_list_keyboard([], page=0, role=role)
                 )
             else:
                 text = f"📋 <b>Talabalar ro'yxati</b> ({len(students)} ta)\n\n"
                 text += "Quyidagilardan birini tanlang:"
                 await message.answer(
                     text,
-                    reply_markup=get_students_list_keyboard(students, page=0),
+                    reply_markup=get_students_list_keyboard(students, page=0, role=role),
                     parse_mode="HTML"
                 )
     except Exception as e:
@@ -80,6 +88,8 @@ async def students_pagination(callback: CallbackQuery):
     page = int(callback.data.split("_")[-1])
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -87,7 +97,7 @@ async def students_pagination(callback: CallbackQuery):
             students = extract_list_from_response(response)
             
             await callback.message.edit_reply_markup(
-                reply_markup=get_students_list_keyboard(students, page=page)
+                reply_markup=get_students_list_keyboard(students, page=page, role=role)
             )
             await callback.answer()
     except Exception as e:
@@ -160,6 +170,8 @@ async def back_to_students(callback: CallbackQuery):
     """Go back to students list."""
     user_id = callback.from_user.id
     access_token = await user_storage.get_access_token(user_id)
+    employee = await user_storage.get_employee(user_id)
+    role = employee.get('role') if employee else None
     
     try:
         async with APIClient(access_token=access_token, user_id=user_id) as client:
@@ -171,7 +183,7 @@ async def back_to_students(callback: CallbackQuery):
             
             await callback.message.edit_text(
                 text,
-                reply_markup=get_students_list_keyboard(students, page=0),
+                reply_markup=get_students_list_keyboard(students, page=0, role=role),
                 parse_mode="Markdown"
             )
             await callback.answer()
@@ -193,8 +205,7 @@ async def create_student_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
     
-    # Check if user has permission (only Developer or Administrator can create students)
-    if role not in ['dasturchi', 'administrator']:
+    if not can_create_student(role):
         await callback.answer("❌ Bu amalni bajarish uchun Dasturchi yoki Administrator roli kerak.", show_alert=True)
         return
     
@@ -394,7 +405,7 @@ async def edit_student_start(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'administrator']:
+    if not can_update_student(role):
         await callback.answer("❌ Talabani tahrirlash uchun Dasturchi yoki Administrator roli kerak.", show_alert=True)
         return
 
@@ -781,7 +792,7 @@ async def delete_student_confirm(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'administrator']:
+    if not can_delete_student(role):
         await callback.answer("❌ Talabani o'chirish uchun Dasturchi yoki Administrator roli kerak.", show_alert=True)
         return
     
@@ -836,7 +847,7 @@ async def delete_student_execute(callback: CallbackQuery, state: FSMContext):
     employee = await user_storage.get_employee(user_id)
     role = employee.get('role') if employee else None
 
-    if role not in ['dasturchi', 'administrator']:
+    if not can_delete_student(role):
         await callback.answer("❌ Ruxsat yo'q.", show_alert=True)
         return
     

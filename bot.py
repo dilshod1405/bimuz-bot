@@ -23,7 +23,6 @@ from handlers import (
     employees,
     attendance,
     common,
-    reports,
     documents
 )
 
@@ -130,7 +129,6 @@ async def main():
     dp.include_router(employees.router)
     dp.include_router(attendance.router)
     dp.include_router(common.router)
-    dp.include_router(reports.router)
     dp.include_router(documents.router)
     
     runner = None
